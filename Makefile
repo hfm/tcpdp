@@ -2,8 +2,10 @@ PKG = github.com/k1LoW/tcpdp
 COMMIT = $$(git describe --tags --always)
 OSNAME=${shell uname -s}
 ifeq ($(OSNAME),Darwin)
+	GO ?= GO111MODULE=on go
 	LO = "lo0"
 else
+	GO ?= GO111MODULE=on /usr/local/go/bin/go
 	LO = "lo"
 endif
 
@@ -22,10 +24,10 @@ MYSQL_ROOT_PASSWORD=mypass
 DISTS=centos7 centos6 ubuntu16
 
 default: test
-ci: depsdev test proxy_integration probe_integration read_integration
+ci: test proxy_integration probe_integration read_integration
 
 test:
-	go test -cover -v $(shell go list ./... | grep -v vendor)
+	$(GO) test -cover -v $(shell go list ./... | grep -v vendor)
 
 proxy_integration: build
 	sudo rm -f ./tcpdp.log*
@@ -79,12 +81,12 @@ cover: depsdev
 	goveralls -service=travis-ci
 
 build:
-	go build -ldflags="$(BUILD_LDFLAGS)"
+	$(GO) build -ldflags="$(BUILD_LDFLAGS)"
 
 build_in_docker:
 	$(eval ver = v$(shell gobump show -r version/))
 	$(eval pkg = tcpdp_v$(shell gobump show -r version/)_linux_amd64.$(DIST))
-	go build -ldflags="$(RELEASE_BUILD_LDFLAGS) -X $(PKG).version=$(ver)" -o tcpdp_linux_amd64.$(DIST)
+	$(GO) build -ldflags="$(RELEASE_BUILD_LDFLAGS) -X $(PKG).version=$(ver)" -o tcpdp_linux_amd64.$(DIST)
 	mkdir $(pkg)
 	mv tcpdp_linux_amd64.$(DIST) ./$(pkg)/tcpdp
 	cp CHANGELOG.md README.md LICENSE ./$(pkg)
@@ -95,29 +97,25 @@ build_static_in_docker:
 	$(eval ver = v$(shell gobump show -r version/))
 	$(eval pkg = tcpdp_v$(shell gobump show -r version/)_linux_amd64_static.$(DIST))
 	cd /usr/local/src/libpcap-$(LIBPCAP_VERSION) && ./configure && make && make install
-	go build -a -tags netgo -installsuffix netgo -ldflags="$(RELEASE_BUILD_LDFLAGS) -X $(PKG).version=$(ver) -X $(PKG).libpcap=$(LIBPCAP_VERSION) -linkmode external -extldflags -static" -o tcpdp_linux_amd64_static.$(DIST)
+	$(GO) build -a -tags netgo -installsuffix netgo -ldflags="$(RELEASE_BUILD_LDFLAGS) -X $(PKG).version=$(ver) -X $(PKG).libpcap=$(LIBPCAP_VERSION) -linkmode external -extldflags -static" -o tcpdp_linux_amd64_static.$(DIST)
 	mkdir $(pkg)
 	mv tcpdp_linux_amd64_static.$(DIST) ./$(pkg)/tcpdp
 	cp CHANGELOG.md README.md LICENSE ./$(pkg)
 	tar -zcvf ./dist/$(ver)/$(pkg).tar.gz ./$(pkg)
 	rm -rf ./$(pkg)
 
-deps:
-	go get -u github.com/golang/dep/cmd/dep
-	dep ensure
+depsdev:
+	$(GO) get golang.org/x/tools/cmd/cover
+	$(GO) get github.com/mattn/goveralls
+	$(GO) get github.com/golang/lint/golint
+	$(GO) get github.com/motemen/gobump/cmd/gobump
+	$(GO) get github.com/Songmu/goxz/cmd/goxz
+	$(GO) get github.com/tcnksm/ghr
+	$(GO) get github.com/Songmu/ghch/cmd/ghch
 
-depsdev: deps
-	go get golang.org/x/tools/cmd/cover
-	go get github.com/mattn/goveralls
-	go get github.com/golang/lint/golint
-	go get github.com/motemen/gobump/cmd/gobump
-	go get github.com/Songmu/goxz/cmd/goxz
-	go get github.com/tcnksm/ghr
-	go get github.com/Songmu/ghch/cmd/ghch
-
-crossbuild: deps depsdev
+crossbuild: depsdev
 	$(eval ver = v$(shell gobump show -r version/))
-	goxz -pv=$(ver) -os=darwin -build-ldflags="$(RELEASE_BUILD_LDFLAGS)" \
+	GO111MODULE=on goxz -pv=$(ver) -os=darwin -build-ldflags="$(RELEASE_BUILD_LDFLAGS)" \
 	  -d=./dist/$(ver)
 	@for d in $(DISTS); do\
 		docker-compose up $$d;\
@@ -131,4 +129,4 @@ release: crossbuild
 	$(eval ver = v$(shell gobump show -r version/))
 	ghr -username k1LoW -replace ${ver} dist/${ver}
 
-.PHONY: default test deps cover
+.PHONY: default test cover build_in_docker build_static_in_docker
